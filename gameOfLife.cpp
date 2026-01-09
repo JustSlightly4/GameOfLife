@@ -21,12 +21,14 @@ double gettime() {
   return( (double)tval.tv_sec + (double)tval.tv_usec/1000000.0 );
 }
 
-void setBoard(char *board, int sizeOfBoard) {
+void initBoard(char *board, int sizeOfBoard) {
     int totalSize = (sizeOfBoard) * (sizeOfBoard);
     for (int i = 0; i < totalSize; ++i) {
         board[i] = 0;
     }
+}
 
+void setBoardRandom(char *board, int sizeOfBoard) {
     int rng = gettime();
     for (int i = 1; i < sizeOfBoard-1; ++i) {
         for (int j = 1; j < sizeOfBoard-1; ++j) {
@@ -42,10 +44,6 @@ void setBoard(char *board, int sizeOfBoard) {
 }
 
 void setBoardTestCase(char *board, int sizeOfBoard) {
-    int totalSize = (sizeOfBoard) * (sizeOfBoard);
-    for (int i = 0; i < totalSize; ++i) {
-        board[i] = 0;
-    }
     int center = (sizeOfBoard / 2) * sizeOfBoard + (sizeOfBoard / 2);
 
     board[center - 1 - sizeOfBoard] = 1;
@@ -62,10 +60,6 @@ void setBoardTestCase(char *board, int sizeOfBoard) {
 }
 
 void setBoardInfinite(char *board, int sizeOfBoard) {
-    int totalSize = (sizeOfBoard) * (sizeOfBoard);
-    for (int i = 0; i < totalSize; ++i) {
-        board[i] = 0;
-    }
     int center = (sizeOfBoard / 2) * sizeOfBoard + (sizeOfBoard / 2);
 
     board[center - sizeOfBoard - 1] = 1;
@@ -103,9 +97,15 @@ int getPopulationScore(char *board, int sizeOfBoard, int index) {
 int advanceGeneration(char *board, vector<int> &markForChange, int sizeOfBoard) {
 
     for (int i = 1; i < sizeOfBoard-1; ++i) {
+        int row = sizeOfBoard * i;
         for (int j = 1; j < sizeOfBoard-1; ++j) {
-            int index = j + ((sizeOfBoard) * i);
-            int score = getPopulationScore(board, sizeOfBoard, index);
+            int index = j + row;
+
+            int score = 
+            board[index - 1 - sizeOfBoard] + board[index - sizeOfBoard] + board[index + 1 - sizeOfBoard] + 
+            board[index - 1] + board[index + 1] +
+            board[index - 1 + sizeOfBoard] + board[index + sizeOfBoard] + board[index + 1 + sizeOfBoard];
+
             if (board[index] && (score < 2 || score > 3)) markForChange.push_back(index);
             if (!board[index] && (score == 3)) markForChange.push_back(index);
         }
@@ -143,6 +143,7 @@ int main(int argc, char **argv) {
     }
 
     char *board = new char[(sizeOfBoard) * (sizeOfBoard)];
+    initBoard(board, sizeOfBoard);
     setBoardInfinite(board, sizeOfBoard);
 
 

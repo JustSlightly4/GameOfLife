@@ -91,19 +91,25 @@ int getPopulationScore(char *board, int sizeOfBoard, int index) {
     return score;
 }
 
-void advanceGeneration(char *board, char *nextBoard, int sizeOfBoard) {
+char advanceGeneration(char *board, char *nextBoard, int sizeOfBoard) {
 
     char changed = 0;
     for (int i = 1; i < sizeOfBoard-1; ++i) {
+        int row = sizeOfBoard * i;
         for (int j = 1; j < sizeOfBoard-1; ++j) {
-            int index = j + ((sizeOfBoard) * i);
-            int score = getPopulationScore(board, sizeOfBoard, index);
+            int index = j + row;
 
-            if (board[index] && (score < 2 || score > 3)) nextBoard[index] = 1 - board[index];
-            else if (!board[index] && (score == 3)) nextBoard[index] = 1 - board[index];
-            else nextBoard[index] = board[index];
+            int score = 
+            board[index - 1 - sizeOfBoard] + board[index - sizeOfBoard] + board[index + 1 - sizeOfBoard] + 
+            board[index - 1] + board[index + 1] +
+            board[index - 1 + sizeOfBoard] + board[index + sizeOfBoard] + board[index + 1 + sizeOfBoard];
+
+            char nextValue = (score == 3) | (board[index] & (score == 2));
+            changed |= (nextValue ^ board[index]);
+            nextBoard[index] = nextValue;
         }
     }
+    return changed;
 
 }
 
@@ -133,22 +139,22 @@ int main(int argc, char **argv) {
     char *nextBoard = new char[(sizeOfBoard) * (sizeOfBoard)];
     initBoard(board, sizeOfBoard);
     initBoard(nextBoard, sizeOfBoard);
-    setBoardTestCase(board, sizeOfBoard);
+    setBoardInfinite(nextBoard, sizeOfBoard);
 
 
-    printBoard(board, sizeOfBoard);
+    //printBoard(nextBoard, sizeOfBoard);
     //cout << "\n";
     int i;
     double startTime = gettime();
     for (i = 0; i < generations; ++i) {
-        advanceGeneration(board, nextBoard, sizeOfBoard);
         swap(board, nextBoard);
+        if (!advanceGeneration(board, nextBoard, sizeOfBoard)) break;
     }
     double endTime = gettime();
 
     cout << "Stopped at " << i << " generations.\n";
     cout << "Time taken " << endTime - startTime << " seconds\n";
-    printBoard(board, sizeOfBoard);
+    //printBoard(nextBoard, sizeOfBoard);
 
     delete[] board;
     delete[] nextBoard;
