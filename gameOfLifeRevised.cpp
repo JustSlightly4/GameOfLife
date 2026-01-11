@@ -7,6 +7,8 @@
 #include <iostream>
 #include <algorithm>
 #include <sys/time.h>
+#include <stdio.h>
+#include <stdlib.h>
 using namespace std;
 
 /* function to get wall clock time as double */
@@ -26,15 +28,10 @@ void initBoard(char *board, int sizeOfBoard) {
 }
 
 void setBoardRandom(char *board, int sizeOfBoard) {
-    int rng = gettime();
     for (int i = 1; i < sizeOfBoard-1; ++i) {
         for (int j = 1; j < sizeOfBoard-1; ++j) {
             int index = j + ((sizeOfBoard) * i);
-            rng ^= rng >> 8;
-            board[index] = rng & 1;
-            rng ^= rng << 13;
-            rng ^= rng >> 17;
-            rng ^= rng << index;
+            board[index] = rand() % 2;
         }
     }
 
@@ -76,37 +73,49 @@ void printBoard(char *board, int sizeOfBoard) {
     }
 }
 
-int getPopulationScore(char *board, int sizeOfBoard, int index) {
-    int score = 0;
-    score += board[index - 1 - sizeOfBoard];
-    score += board[index - sizeOfBoard];
-    score += board[index + 1 - sizeOfBoard];
-
-    score += board[index - 1];
-    score += board[index + 1];
-
-    score += board[index - 1 + sizeOfBoard];
-    score += board[index + sizeOfBoard];
-    score += board[index + 1 + sizeOfBoard];
-    return score;
-}
-
+//This functions advances the game of life by one generation.
+//If called only once then:
+//Its best, worst, and averages cases are O(sizeOfBoard * sizeOfBoard)
+//Where sizeOfBoard is the original size given.
 char advanceGeneration(char *board, char *nextBoard, int sizeOfBoard) {
 
+    //Flag to return if the board changed or not
     char changed = 0;
+
+    //Double for loop to loop through the board but avoid the padded edges
     for (int i = 1; i < sizeOfBoard-1; ++i) {
-        int row = sizeOfBoard * i;
+
+        //Ptr arithmetic for optimization
+        char* rowAbove = board + (i-1) * sizeOfBoard; //Determines the row above the current index
+        char* rowCurrent = board + i * sizeOfBoard; //Determines the current row
+        char* rowBelow = board + (i+1) * sizeOfBoard; //Determines the row below the current index
+        char* rowNext = nextBoard + i*sizeOfBoard; //Determines the row for the nextBoard
+
+        //Second for loop that loops through one row
         for (int j = 1; j < sizeOfBoard-1; ++j) {
-            int index = j + row;
 
+            //Determine the cells 'population score'
             int score = 
-            board[index - 1 - sizeOfBoard] + board[index - sizeOfBoard] + board[index + 1 - sizeOfBoard] + 
-            board[index - 1] + board[index + 1] +
-            board[index - 1 + sizeOfBoard] + board[index + sizeOfBoard] + board[index + 1 + sizeOfBoard];
+                rowAbove[j-1] + rowAbove[j] + rowAbove[j+1] +
+                rowCurrent[j-1] + rowCurrent[j+1] +
+                rowBelow[j-1] + rowBelow[j] + rowBelow[j+1];
 
-            char nextValue = (score == 3) | (board[index] & (score == 2));
-            changed |= (nextValue ^ board[index]);
-            nextBoard[index] = nextValue;
+            //Bitwise operations to determine whether the cell lives or dies.
+            // If population score == 3 then whether alive or dead the cell is set to 1
+            // OR if the current cell is alive and its pop score is 2 then cell is set to 1
+            char nextValue = (score == 3) || (rowCurrent[j] && score == 2);
+
+            //Uses a lookup table so there is no computation
+            //Is slower for some reason though
+            //char nextValue = situationTable[rowCurrent[j]][score];
+
+            //Instead of branching just XOR the nextValue with the value of the current cell
+            //Then OR that with changed. This will have to run each time but should be faster
+            //than branching if statement.
+            changed |= nextValue ^ rowCurrent[j];
+
+            //Finally, set the nextBoard equivalent cell to be either 0 or 1
+            rowNext[j] = nextValue;
         }
     }
     return changed;
@@ -135,6 +144,17 @@ int main(int argc, char **argv) {
         return 3;
     }
 
+    //Set random function
+    srand(time(NULL));
+
+    /*
+    //Table to determine if the cell lives or dies
+    int situationTable[2][9] = {
+        {0, 0, 0, 1, 0, 0, 0, 0, 0},
+        {0, 0, 1, 1, 0, 0, 0, 0, 0},
+    };
+    */
+
     char *board = new char[(sizeOfBoard) * (sizeOfBoard)];
     char *nextBoard = new char[(sizeOfBoard) * (sizeOfBoard)];
     initBoard(board, sizeOfBoard);
@@ -148,7 +168,7 @@ int main(int argc, char **argv) {
     double startTime = gettime();
     for (i = 0; i < generations; ++i) {
         swap(board, nextBoard);
-        if (!advanceGeneration(board, nextBoard, sizeOfBoard)) break;
+        if (!advanceGeneration(board, nextBoard, sizeOfBoard, situationTable)) break;
     }
     double endTime = gettime();
 
