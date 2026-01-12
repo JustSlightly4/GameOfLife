@@ -20,14 +20,14 @@ double gettime() {
   return( (double)tval.tv_sec + (double)tval.tv_usec/1000000.0 );
 }
 
-void initBoard(char *board, int sizeOfBoard) {
+void initBoard(unsigned char *board, int sizeOfBoard) {
     int totalSize = (sizeOfBoard) * (sizeOfBoard);
     for (int i = 0; i < totalSize; ++i) {
         board[i] = 0;
     }
 }
 
-void setBoardRandom(char *board, int sizeOfBoard) {
+void setBoardRandom(unsigned char *board, int sizeOfBoard) {
     for (int i = 1; i < sizeOfBoard-1; ++i) {
         for (int j = 1; j < sizeOfBoard-1; ++j) {
             int index = j + ((sizeOfBoard) * i);
@@ -37,7 +37,7 @@ void setBoardRandom(char *board, int sizeOfBoard) {
 
 }
 
-void setBoardTestCase(char *board, int sizeOfBoard) {
+void setBoardTestCase(unsigned char *board, int sizeOfBoard) {
     int center = (sizeOfBoard / 2) * sizeOfBoard + (sizeOfBoard / 2);
 
     board[center - 1 - sizeOfBoard] = 1;
@@ -53,7 +53,7 @@ void setBoardTestCase(char *board, int sizeOfBoard) {
 
 }
 
-void setBoardInfinite(char *board, int sizeOfBoard) {
+void setBoardInfinite(unsigned char *board, int sizeOfBoard) {
     int center = (sizeOfBoard / 2) * sizeOfBoard + (sizeOfBoard / 2);
 
     board[center - sizeOfBoard - 1] = 1;
@@ -64,7 +64,7 @@ void setBoardInfinite(char *board, int sizeOfBoard) {
 
 }
 
-void printBoard(char *board, int sizeOfBoard) {
+void printBoard(unsigned char *board, int sizeOfBoard) {
     for (int i = 0; i < sizeOfBoard; ++i) {
         for (int j = 0; j < sizeOfBoard; ++j) {
             cout << (board[j + (sizeOfBoard * i)] ? "1 " : "0 ");
@@ -77,68 +77,60 @@ void printBoard(char *board, int sizeOfBoard) {
 //If called only once then:
 //Its best, worst, and averages cases are O(sizeOfBoard * sizeOfBoard)
 //Where sizeOfBoard is the original size given.
-char advanceGeneration(char *board, char *nextBoard, int sizeOfBoard) {
+unsigned char advanceGeneration(unsigned char *__restrict board, unsigned char *__restrict nextBoard, int sizeOfBoard) {
 
     //Flag to return if the board changed or not
-    char changed = 0;
+    unsigned char changed = 0;
 
-    /*
     //Double for loop to loop through the board but avoid the padded edges
     for (int i = 1; i < sizeOfBoard-1; ++i) {
 
         //Ptr arithmetic for optimization
-        char* rowAbove = board + (i-1) * sizeOfBoard; //Determines the row above the current index
-        char* rowCurrent = board + i * sizeOfBoard; //Determines the current row
-        char* rowBelow = board + (i+1) * sizeOfBoard; //Determines the row below the current index
-        char* rowNext = nextBoard + i*sizeOfBoard; //Determines the row for the nextBoard
+        unsigned char* rowAbove = board + (i-1) * sizeOfBoard; //Determines the row above the current index
+        unsigned char* rowCurrent = board + i * sizeOfBoard; //Determines the current row
+        unsigned char* rowBelow = board + (i+1) * sizeOfBoard; //Determines the row below the current index
+        unsigned char* rowNext = nextBoard + i*sizeOfBoard; //Determines the row for the nextBoard
+
+        unsigned char a0 = rowAbove[0];
+        unsigned char a1 = rowAbove[1];
+        unsigned char a2 = rowAbove[2];
+        unsigned char a3 = rowCurrent[0];
+        unsigned char a4 = rowCurrent[1];
+        unsigned char a5 = rowCurrent[2];
+        unsigned char a6 = rowBelow[0];
+        unsigned char a7 = rowBelow[1];
+        unsigned char a8 = rowBelow[2];
 
         //Second for loop that loops through one row
         for (int j = 1; j < sizeOfBoard-1; ++j) {
 
             //Determine the cells 'population score'
-            int score = 
-                rowAbove[j-1] + rowAbove[j] + rowAbove[j+1] +
-                rowCurrent[j-1] + rowCurrent[j+1] +
-                rowBelow[j-1] + rowBelow[j] + rowBelow[j+1];
+            int score = a0 + a1 + a2 + a3 + a5 + a6 + a7 + a8;
 
             //Bitwise operations to determine whether the cell lives or dies.
             // If population score == 3 then whether alive or dead the cell is set to 1
             // OR if the current cell is alive and its pop score is 2 then cell is set to 1
-            char nextValue = (score == 3) || (rowCurrent[j] && score == 2);
+            unsigned char nextValue = (score == 3) || (a4 && score == 2);
 
             //Uses a lookup table so there is no computation
             //Is slower for some reason though
-            //char nextValue = situationTable[rowCurrent[j]][score];
+            //unsigned char nextValue = situationTable[rowCurrent[j]][score];
 
             //Instead of branching just XOR the nextValue with the value of the current cell
             //Then OR that with changed. This will have to run each time but should be faster
             //than branching if statement.
-            changed |= nextValue ^ rowCurrent[j];
+            changed |= nextValue ^ a4;
 
             //Finally, set the nextBoard equivalent cell to be either 0 or 1
             rowNext[j] = nextValue;
+
+            // shift window right
+            a0 = a1; a1 = a2; a2 = rowAbove[j+2];
+            a3 = a4; a4 = a5; a5 = rowCurrent[j+2];
+            a6 = a7; a7 = a8; a8 = rowBelow[j+2];
         }
     }
-        */
-
-    int index = sizeOfBoard+1;
-    for (int i = 1; i < sizeOfBoard-1; ++i) {
-        for (int j = 1; j < sizeOfBoard-1; ++j) {
-            int score = 
-                board[index - 1 - sizeOfBoard] + board[index - sizeOfBoard] + board[index + 1 - sizeOfBoard] + 
-                board[index - 1] + board[index + 1] +
-                board[index - 1 + sizeOfBoard] + board[index + sizeOfBoard] + board[index + 1 + sizeOfBoard];
-
-            char nextValue = (score == 3) || (board[index] && score == 2);
-
-            changed |= nextValue ^ board[index];
-
-            nextBoard[index] = nextValue;
-            ++index;
-        }
-        index += 2;
-    }
-    return 1;
+    return changed;
 
 }
 
@@ -175,11 +167,11 @@ int main(int argc, char **argv) {
     };
     */
 
-    char *board = new char[(sizeOfBoard) * (sizeOfBoard)];
-    char *nextBoard = new char[(sizeOfBoard) * (sizeOfBoard)];
+    unsigned char *board = new unsigned char[(sizeOfBoard) * (sizeOfBoard)];
+    unsigned char *nextBoard = new unsigned char[(sizeOfBoard) * (sizeOfBoard)];
     initBoard(board, sizeOfBoard);
     initBoard(nextBoard, sizeOfBoard);
-    setBoardInfinite(nextBoard, sizeOfBoard);
+    setBoardInfinite(board, sizeOfBoard);
 
 
     //printBoard(nextBoard, sizeOfBoard);
@@ -187,14 +179,14 @@ int main(int argc, char **argv) {
     int i;
     double startTime = gettime();
     for (i = 0; i < generations; ++i) {
-        swap(board, nextBoard);
         if (!advanceGeneration(board, nextBoard, sizeOfBoard)) break;
+        swap(board, nextBoard);
     }
     double endTime = gettime();
 
     cout << "Stopped at " << i << " generations.\n";
     cout << "Time taken " << endTime - startTime << " seconds\n";
-    //printBoard(nextBoard, sizeOfBoard);
+    //printBoard(board, sizeOfBoard);
 
     delete[] board;
     delete[] nextBoard;
