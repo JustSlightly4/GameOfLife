@@ -3,7 +3,7 @@
 * Email: ermontgomery1@crimson.ua.edu
 * Course Section: CS 481
 * Homework #: 0
-* Instructions to compile the program: 
+* Instructions to compile the program: g++ -march=native -O3 gameOfLife.cpp
 * Instructions to run the program: ./a 10000 5000
 */
 
