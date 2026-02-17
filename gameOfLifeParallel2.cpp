@@ -1,4 +1,4 @@
-/*
+ /*
 * Name: Eric Ryan Montgomery
 * Email: ermontgomery1@crimson.ua.edu
 * Course Section: CS 481
@@ -9,13 +9,10 @@
 
 #include <iostream>
 #include <algorithm>
+//#include <sys/time.h>
 #include <chrono>
-#include <thread>
 #include <stdio.h>
 #include <stdlib.h>
-#ifdef _OPENMP
-#   include <omp.h>
-#endif
 using namespace std;
 
 /* function to get wall clock time as double */
@@ -94,6 +91,53 @@ void printBoard(unsigned char *board, int sizeOfBoard) {
     }
 }
 
+//This functions advances the game of life by one generation.
+//If called only once then:
+//Its best, worst, and averages cases are O(sizeOfBoard * sizeOfBoard)
+//Where sizeOfBoard is the original size given.
+unsigned char advanceGeneration(unsigned char *board, unsigned char *nextBoard, int sizeOfBoard, int threads) {
+
+    //Flag to return if the board changed or not
+    unsigned char changed = 0;
+
+    //Double for loop to loop through the board but avoid the padded edges
+    #pragma omp parallel for reduction(|:changed) num_threads(threads)
+    for (int i = 1; i < sizeOfBoard-1; ++i) {
+
+        //Ptr arithmetic for optimization
+        unsigned char* rowAbove = board + (i-1) * sizeOfBoard; //Determines the row above the current index
+        unsigned char* rowCurrent = board + i * sizeOfBoard; //Determines the current row
+        unsigned char* rowBelow = board + (i+1) * sizeOfBoard; //Determines the row below the current index
+        unsigned char* rowNext = nextBoard + i*sizeOfBoard; //Determines the row for the nextBoard
+
+        //Second for loop that loops through one row
+        for (int j = 1; j < sizeOfBoard-1; ++j) {
+
+            //Determine the cells 'population score'
+            unsigned char score = 
+                rowAbove[j-1] + rowAbove[j] + rowAbove[j+1] +
+                rowCurrent[j-1] + rowCurrent[j+1] +
+                rowBelow[j-1] + rowBelow[j] + rowBelow[j+1];
+
+            //Bitwise operations to determine whether the cell lives or dies.
+            // If population score == 3 then whether alive or dead the cell is set to 1
+            // OR if the current cell is alive and its pop score is 2 then cell is set to 1
+            // Short circuits so it does it faster than the bitwise operation
+            unsigned char nextValue = (score == 3) || (rowCurrent[j] && score == 2);
+
+            //Instead of branching just XOR the nextValue with the value of the current cell
+            //Then OR that with changed. This will have to run each time but should be faster
+            //than branching if statement.
+            changed |= nextValue ^ rowCurrent[j];
+
+            //Finally, set the nextBoard equivalent cell to be either 0 or 1
+            rowNext[j] = nextValue;
+        }
+    }
+    return changed;
+
+}
+
 int main(int argc, char **argv) {
 
     //Check to make sure that their are three command line arguments
@@ -125,9 +169,17 @@ int main(int argc, char **argv) {
     //Sets random function
     srand(time(NULL));
 
+    /*
+    //Table to determine if the cell lives or dies
+    int situationTable[2][9] = {
+        {0, 0, 0, 1, 0, 0, 0, 0, 0}, //dead
+        {0, 0, 1, 1, 0, 0, 0, 0, 0}, //alive
+    };
+    */
+
     //Create, intialize, and set the pattern for the boards
-    unsigned char* __restrict__ board = new unsigned char[(sizeOfBoard) * (sizeOfBoard)];
-    unsigned char* __restrict__ nextBoard = new unsigned char[(sizeOfBoard) * (sizeOfBoard)];
+    unsigned char *board = new unsigned char[(sizeOfBoard) * (sizeOfBoard)];
+    unsigned char *nextBoard = new unsigned char[(sizeOfBoard) * (sizeOfBoard)];
     initBoard(board, sizeOfBoard);
     initBoard(nextBoard, sizeOfBoard);
     setBoardInfinite(board, sizeOfBoard);
@@ -135,68 +187,15 @@ int main(int argc, char **argv) {
 
     //printBoard(board, sizeOfBoard);
     //cout << "\n";
-    int i = 0; //Is is to record the final generation
+    int i;
     double startTime = gettime();
-
-    //This does not have the for directive so it doesn't parallelize the outside
-    //for loop as far as I'm aware. It allows the inside for loop to reuse threads
-    //between generations.
-    unsigned char changed = 0; // shared across threads
-    unsigned char finished = 0;
-    #pragma omp parallel num_threads(threads) 
-    { 
-        for (int gen = 0; gen < generations; ++gen) {
-
-            //Start of main loop where threads each take a piece of the work
-            #pragma omp for reduction(|:changed)
-            for (int r = 1; r < sizeOfBoard-1; ++r) { //r is for the row
-
-                //Pointers to the boards rows. The restrict keyword tells the compiler that
-                //it can optimize and not have to worry about aliasing
-                unsigned char* __restrict__ rowAbove   = board + (r - 1) * sizeOfBoard;
-                unsigned char* __restrict__ rowCurrent = board + r * sizeOfBoard;
-                unsigned char* __restrict__ rowBelow   = board + (r + 1) * sizeOfBoard;
-                unsigned char* __restrict__ rowNext    = nextBoard + r * sizeOfBoard;
-
-                //Each thread having a local changed is faster for some reason
-                //I figured out why. This avoid false sharing on the cache line
-                unsigned char localChanged = 0;
-                
-                #pragma omp simd
-                for (int c = 1; c < sizeOfBoard-1; ++c) { //c is for the column
-
-                    unsigned char score =
-                        rowAbove[c-1] + rowAbove[c] + rowAbove[c+1] +
-                        rowCurrent[c-1] + rowCurrent[c+1] +
-                        rowBelow[c-1] + rowBelow[c] + rowBelow[c+1];
-
-                    unsigned char nextValue = (score == 3) || (rowCurrent[c] && score == 2);
-
-                    rowNext[c] = nextValue;
-                    localChanged |= (nextValue ^ rowCurrent[c]);
-
-                }
-
-                changed |= localChanged;
-
-            }
-
-            //Only one thread checked if all threads need to finish or not
-            //Then that same single thread swaps the boards
-            #pragma omp single
-            {
-                if (!changed) finished = 1;
-                std::swap(board, nextBoard);
-                i = gen + 1;
-                changed = 0;
-            }
-            if (finished) break;
-        }
+    for (i = 0; i < generations; ++i) {
+        if (!advanceGeneration(board, nextBoard, sizeOfBoard)) break;
+        swap(board, nextBoard);
     }
-
     double endTime = gettime();
 
-    cout << "Stopped at " << (finished ? i-1 : i) << " generations.\n";
+    cout << "Stopped at " << i << " generations.\n";
     cout << "Time taken " << endTime - startTime << " seconds\n";
     //printBoard(board, sizeOfBoard);
 
