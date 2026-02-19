@@ -3,7 +3,7 @@
 * Email: ermontgomery1@crimson.ua.edu
 * Course Section: CS 481
 * Homework #: 0
-* Instructions to compile the program: g++ -march=native -O3 gameOfLife.cpp
+* Instructions to compile the program: g++ -Wall -O3 -march=native -fopenmp -fopt-info-vec-optimized gameOfLifeParallel.cpp
 * Instructions to run the program: ./a 10000 5000
 */
 
@@ -17,6 +17,8 @@
 #   include <omp.h>
 #endif
 using namespace std;
+using var = uint_fast8_t;
+using var2 = uint_fast32_t;
 
 /* function to get wall clock time as double */
 /*
@@ -37,18 +39,18 @@ double gettime() {
 }
 
 //Intializes a given board to all zeros
-void initBoard(unsigned char *board, int sizeOfBoard) {
-    int totalSize = (sizeOfBoard) * (sizeOfBoard);
-    for (int i = 0; i < totalSize; ++i) {
+void initBoard(var* __restrict__ board, var2 sizeOfBoard) {
+    var2 totalSize = (sizeOfBoard) * (sizeOfBoard);
+    for (var2 i = 0; i < totalSize; ++i) {
         board[i] = 0;
     }
 }
 
 //Sets a board to all random values
-void setBoardRandom(unsigned char *board, int sizeOfBoard) {
-    for (int i = 1; i < sizeOfBoard-1; ++i) {
-        for (int j = 1; j < sizeOfBoard-1; ++j) {
-            int index = j + ((sizeOfBoard) * i);
+void setBoardRandom(var* board, var2 sizeOfBoard) {
+    for (var2 i = 1; i < sizeOfBoard-1; ++i) {
+        for (var2 j = 1; j < sizeOfBoard-1; ++j) {
+            var2 index = j + ((sizeOfBoard) * i);
             board[index] = rand() % 2;
         }
     }
@@ -56,8 +58,8 @@ void setBoardRandom(unsigned char *board, int sizeOfBoard) {
 }
 
 //Sets a board to the given test case in homework 0
-void setBoardTestCase(unsigned char *board, int sizeOfBoard) {
-    int center = (sizeOfBoard / 2) * sizeOfBoard + (sizeOfBoard / 2);
+void setBoardTestCase(var* board, var2 sizeOfBoard) {
+    var2 center = (sizeOfBoard / 2) * sizeOfBoard + (sizeOfBoard / 2);
 
     board[center - 1 - sizeOfBoard] = 1;
     board[center - sizeOfBoard] = 1;
@@ -73,8 +75,8 @@ void setBoardTestCase(unsigned char *board, int sizeOfBoard) {
 }
 
 //Sets the board to an infinite pattern
-void setBoardInfinite(unsigned char *board, int sizeOfBoard) {
-    int center = (sizeOfBoard / 2) * sizeOfBoard + (sizeOfBoard / 2);
+void setBoardInfinite(var*board, var2 sizeOfBoard) {
+    var2 center = (sizeOfBoard / 2) * sizeOfBoard + (sizeOfBoard / 2);
 
     board[center - sizeOfBoard - 1] = 1;
     board[center - sizeOfBoard] = 1;
@@ -85,9 +87,9 @@ void setBoardInfinite(unsigned char *board, int sizeOfBoard) {
 }
 
 //Prints the board to the screen
-void printBoard(unsigned char *board, int sizeOfBoard) {
-    for (int i = 0; i < sizeOfBoard; ++i) {
-        for (int j = 0; j < sizeOfBoard; ++j) {
+void printBoard(var*board, var2 sizeOfBoard) {
+    for (var2 i = 0; i < sizeOfBoard; ++i) {
+        for (var2 j = 0; j < sizeOfBoard; ++j) {
             cout << (board[j + (sizeOfBoard * i)] ? "1 " : "0 ");
         }
         cout << "\n";
@@ -103,9 +105,9 @@ int main(int argc, char **argv) {
     }
 
     //Initialize Values
-    int const sizeOfBoard = atoi(argv[1]) + 2;
-    int const generations = atoi(argv[2]);
-    int const threads = atoi(argv[3]);
+    var2 const sizeOfBoard = atoi(argv[1]) + 2;
+    var2 const generations = atoi(argv[2]);
+    var2 const threads = atoi(argv[3]);
 
     if (sizeOfBoard < 3) {
         printf("Error: <sizeOfBoard> must be 3 or more!\n");
@@ -126,8 +128,8 @@ int main(int argc, char **argv) {
     srand(time(NULL));
 
     //Create, intialize, and set the pattern for the boards
-    unsigned char* __restrict__ board = new unsigned char[(sizeOfBoard) * (sizeOfBoard)];
-    unsigned char* __restrict__ nextBoard = new unsigned char[(sizeOfBoard) * (sizeOfBoard)];
+    var* __restrict__ board = new var[(sizeOfBoard) * (sizeOfBoard)];
+    var* __restrict__ nextBoard = new var[(sizeOfBoard) * (sizeOfBoard)];
     initBoard(board, sizeOfBoard);
     initBoard(nextBoard, sizeOfBoard);
     setBoardInfinite(board, sizeOfBoard);
@@ -135,42 +137,41 @@ int main(int argc, char **argv) {
 
     //printBoard(board, sizeOfBoard);
     //cout << "\n";
-    int i = 0; //Is is to record the final generation
+    var2 i = 0; //Is is to record the final generation
     double startTime = gettime();
 
     //This does not have the for directive so it doesn't parallelize the outside
     //for loop as far as I'm aware. It allows the inside for loop to reuse threads
     //between generations.
-    unsigned char changed = 0; // shared across threads
-    unsigned char finished = 0;
+    var changed = 0; // shared across threads
+    var finished = 1;
     #pragma omp parallel num_threads(threads) 
     { 
-        for (int gen = 0; gen < generations; ++gen) {
+        for (var2 gen = 0; gen < generations && finished; ++gen) {
 
             //Start of main loop where threads each take a piece of the work
-            #pragma omp for reduction(|:changed)
-            for (int r = 1; r < sizeOfBoard-1; ++r) { //r is for the row
+            #pragma omp for schedule(static) reduction(|:changed)
+            for (var2 r = 1; r < sizeOfBoard-1; ++r) { //r is for the row
 
                 //Pointers to the boards rows. The restrict keyword tells the compiler that
                 //it can optimize and not have to worry about aliasing
-                unsigned char* __restrict__ rowAbove   = board + (r - 1) * sizeOfBoard;
-                unsigned char* __restrict__ rowCurrent = board + r * sizeOfBoard;
-                unsigned char* __restrict__ rowBelow   = board + (r + 1) * sizeOfBoard;
-                unsigned char* __restrict__ rowNext    = nextBoard + r * sizeOfBoard;
+                var* __restrict__ rowAbove = board + (r - 1) * sizeOfBoard;
+                var* __restrict__ rowCurrent = board + r * sizeOfBoard;
+                var* __restrict__ rowBelow = board + (r + 1) * sizeOfBoard;
+                var* __restrict__ rowNext = nextBoard + r * sizeOfBoard;
 
                 //Each thread having a local changed is faster for some reason
                 //I figured out why. This avoid false sharing on the cache line
-                unsigned char localChanged = 0;
+                var localChanged = 0;
                 
                 #pragma omp simd
-                for (int c = 1; c < sizeOfBoard-1; ++c) { //c is for the column
-
-                    unsigned char score =
+                for (var2 c = 1; c < sizeOfBoard-1; ++c) { //c is for the column
+                    var score =
                         rowAbove[c-1] + rowAbove[c] + rowAbove[c+1] +
                         rowCurrent[c-1] + rowCurrent[c+1] +
                         rowBelow[c-1] + rowBelow[c] + rowBelow[c+1];
 
-                    unsigned char nextValue = (score == 3) || (rowCurrent[c] && score == 2);
+                    var nextValue = (score == 3) || (rowCurrent[c] && score == 2);
 
                     rowNext[c] = nextValue;
                     localChanged |= (nextValue ^ rowCurrent[c]);
@@ -183,20 +184,20 @@ int main(int argc, char **argv) {
 
             //Only one thread checked if all threads need to finish or not
             //Then that same single thread swaps the boards
+            //#pragma omp barrier
             #pragma omp single
             {
-                if (!changed) finished = 1;
+                if (!changed) finished = 0;
                 std::swap(board, nextBoard);
                 i = gen + 1;
                 changed = 0;
-            }
-            if (finished) break;
+            } //Implicit barrier at the end of omp single
         }
     }
 
     double endTime = gettime();
 
-    cout << "Stopped at " << (finished ? i-1 : i) << " generations.\n";
+    cout << "Stopped at " << (finished ? i : i-1) << " generations.\n";
     cout << "Time taken " << endTime - startTime << " seconds\n";
     //printBoard(board, sizeOfBoard);
 
