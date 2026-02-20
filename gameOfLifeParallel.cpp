@@ -187,7 +187,7 @@ int main(int argc, char **argv) {
             //#pragma omp barrier
             #pragma omp single
             {
-                if (!changed) finished = 0;
+                finished = finished && changed;
                 std::swap(board, nextBoard);
                 i = gen + 1;
                 changed = 0;
