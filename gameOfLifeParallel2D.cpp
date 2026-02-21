@@ -2,9 +2,9 @@
 * Name: Eric Ryan Montgomery
 * Email: ermontgomery1@crimson.ua.edu
 * Course Section: CS 481
-* Homework #: 0
-* Instructions to compile the program: g++ -Wall -O3 -march=native -fopenmp -fopt-info-vec-optimized gameOfLifeParallel.cpp
-* Instructions to run the program: ./a 10000 5000
+* Homework #: 2
+* Instructions to compile the program: g++ -Wall -O3 -march=native -fopenmp gameOfLifeParallel2D.cpp
+* Instructions to run the program: ./a.out <sizeOfBoard> <generations> <threads> <outputFile>
 */
 
 #include <iostream>
@@ -13,6 +13,7 @@
 #include <thread>
 #include <stdio.h>
 #include <stdlib.h>
+#include <fstream>
 #ifdef _OPENMP
 #   include <omp.h>
 #endif
@@ -72,11 +73,10 @@ void initarray(var **a, int mrows, int ncols, var value) {
 }
 
 //Sets a board to all random values
-void setBoardRandom(var* board, int sizeOfBoard) {
-    for (int i = 1; i < sizeOfBoard-1; ++i) {
-        for (int j = 1; j < sizeOfBoard-1; ++j) {
-            int index = j + ((sizeOfBoard) * i);
-            board[index] = rand() % 2;
+void setBoardRandom(var** board, int mrows, int ncols) {
+    for (int i = 1; i < mrows-1; ++i) {
+        for (int j = 1; j < ncols-1; ++j) {
+            board[i][j] = rand() % 2;
         }
     }
 
@@ -119,16 +119,44 @@ void printBoard(var **board, int mrows, int ncols) {
     }
 }
 
+//Writes the board to a file
+void writeBoard(var **board, int mrows, int ncols, string fileName, string title) {
+    std::ofstream outFile(fileName);
+    if (!outFile) {
+        std::cerr << "Error: Unable to open file for writing." << std::endl;
+        return;
+    }
+    outFile << title << ":\n";
+    for (int i = 0; i < mrows; ++i) {
+        for (int j = 0; j < ncols; ++j) {
+            outFile << (board[i][j] ? "1" : "0") << " ";
+        }
+        outFile << "\n";
+    }
+    outFile.close();
+}
+
+void writeBoardInfo(double timeTaken, int generationsTaken, string fileName) {
+    std::ofstream outFile(fileName);
+    if (!outFile) {
+        std::cerr << "Error: Unable to open file for writing." << std::endl;
+        return;
+    }
+    outFile << "Stopped at " << generationsTaken << " generations.\n";
+    outFile << "Time taken " << timeTaken << " seconds\n";
+    outFile.close();
+}
+
 int playGameOfLife(var** board, var** nextBoard, int sizeOfBoard, int generations, int threads) {
     //This does not have the for directive so it doesn't parallelize the outside
     //for loop as far as I'm aware. It allows the inside for loop to reuse threads
     //between generations.
-    int i = 0; //Is is to record the final generation
+    int i = 0;
     var changed = 0; // shared across threads
     var finished = 1;
     #pragma omp parallel num_threads(threads)
     { 
-        for (int gen = 0; gen < generations && finished; ++gen) {
+        while(i < generations && finished) {
 
             //Start of main loop where threads each take a piece of the work
             #pragma omp for schedule(static) reduction(|:changed)
@@ -168,7 +196,7 @@ int playGameOfLife(var** board, var** nextBoard, int sizeOfBoard, int generation
             {
                 finished = finished & changed;
                 std::swap(board, nextBoard);
-                i = gen + 1;
+                i++;
                 changed = 0;
             } //Implicit barrier at the end of omp single
         }
@@ -180,8 +208,8 @@ int playGameOfLife(var** board, var** nextBoard, int sizeOfBoard, int generation
 int main(int argc, char **argv) {
 
     //Check to make sure that their are three command line arguments
-    if (argc != 4) {
-        printf("Usage: ./a.out <sizeOfBoard> <generations> <threads>\n");
+    if (argc != 5) {
+        printf("Usage: ./a.out <sizeOfBoard> <generations> <threads> <outputFile>\n");
         return 1;
     }
 
@@ -189,6 +217,7 @@ int main(int argc, char **argv) {
     int const sizeOfBoard = atoi(argv[1]) + 2;
     int const generations = atoi(argv[2]);
     int const threads = atoi(argv[3]);
+    string const outputFile = argv[4];
 
     if (sizeOfBoard < 3) {
         printf("Error: <sizeOfBoard> must be 3 or more!\n");
@@ -206,25 +235,23 @@ int main(int argc, char **argv) {
     }
 
     //Sets random function
-    srand(time(NULL));
+    //srand(time(NULL));
+    srand(0);
 
     //Create, intialize, and set the pattern for the boards
     var** board = allocarray(sizeOfBoard, sizeOfBoard);
     var** nextBoard = allocarray(sizeOfBoard, sizeOfBoard);
     initarray(board, sizeOfBoard, sizeOfBoard, 0);
     initarray(nextBoard, sizeOfBoard, sizeOfBoard, 0);
-    setBoardInfinite(board, sizeOfBoard, sizeOfBoard);
+    setBoardTestCase(board, sizeOfBoard, sizeOfBoard);
 
-
-    //printBoard(board, sizeOfBoard, sizeOfBoard);
-    //cout << "\n";
     double startTime = gettime();
     int i = playGameOfLife(board, nextBoard, sizeOfBoard, generations, threads);
     double endTime = gettime();
 
     cout << "Stopped at " << i << " generations.\n";
     cout << "Time taken " << endTime - startTime << " seconds\n";
-    //printBoard(board, sizeOfBoard, sizeOfBoard);
+    writeBoard(board, sizeOfBoard, sizeOfBoard, outputFile, "Final Board");
 
     freearray(board);
     freearray(nextBoard);
