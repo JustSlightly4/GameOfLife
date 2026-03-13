@@ -243,7 +243,7 @@ int main(int argc, char **argv) {
     var** nextBoard = allocarray(sizeOfBoard, sizeOfBoard);
     initarray(board, sizeOfBoard, sizeOfBoard, 0);
     initarray(nextBoard, sizeOfBoard, sizeOfBoard, 0);
-    setBoardTestCase(board, sizeOfBoard, sizeOfBoard);
+    setBoardRandom(board, sizeOfBoard, sizeOfBoard);
 
     double startTime = gettime();
     int i = playGameOfLife(board, nextBoard, sizeOfBoard, generations, threads);
