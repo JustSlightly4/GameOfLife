@@ -89,6 +89,33 @@ void exchange_ghost(VAR **local_board, int my_rows, int cols, int my_rank, int c
     MPI_Waitall(4, requests, MPI_STATUSES_IGNORE);
 }
 
+void exchange_ghost_top(VAR **local_board, int my_rows, int cols, int my_rank, int comm_sz) {
+    int bottom_neighbor = my_rank + 1;
+    MPI_Request requests[2];
+    MPI_Isend(local_board[my_rows], cols, MPI_VAR, bottom_neighbor, 0, MPI_COMM_WORLD, &requests[0]);
+    MPI_Irecv(local_board[my_rows + 1], cols, MPI_VAR, bottom_neighbor, 1, MPI_COMM_WORLD, &requests[1]);
+    MPI_Waitall(2, requests, MPI_STATUSES_IGNORE);
+}
+
+void exchange_ghost_bottom(VAR **local_board, int my_rows, int cols, int my_rank, int comm_sz) {
+    int top_neighbor = my_rank - 1;
+    MPI_Request requests[2];
+    MPI_Irecv(local_board[0], cols, MPI_VAR, top_neighbor, 0, MPI_COMM_WORLD, &requests[0]);
+    MPI_Isend(local_board[1], cols, MPI_VAR, top_neighbor, 1, MPI_COMM_WORLD, &requests[1]);
+    MPI_Waitall(2, requests, MPI_STATUSES_IGNORE);
+}
+
+void exchange_ghost_inner(VAR **local_board, int my_rows, int cols, int my_rank, int comm_sz) {
+    int top_neighbor = my_rank - 1;
+    int bottom_neighbor = my_rank + 1;
+    MPI_Request requests[4];
+    MPI_Isend(local_board[my_rows], cols, MPI_VAR, bottom_neighbor, 0, MPI_COMM_WORLD, &requests[0]);
+    MPI_Irecv(local_board[0], cols, MPI_VAR, top_neighbor, 0, MPI_COMM_WORLD, &requests[1]);
+    MPI_Isend(local_board[1], cols, MPI_VAR, top_neighbor, 1, MPI_COMM_WORLD, &requests[2]);
+    MPI_Irecv(local_board[my_rows + 1], cols, MPI_VAR, bottom_neighbor, 1, MPI_COMM_WORLD, &requests[3]);
+    MPI_Waitall(4, requests, MPI_STATUSES_IGNORE);
+}
+
 void copy_array(int rows, int cols, VAR **array1, VAR **array2) {
     for (int i = 0; i < rows; ++i) {
         for (int j = 0; j < cols; ++j) {
@@ -97,7 +124,7 @@ void copy_array(int rows, int cols, VAR **array1, VAR **array2) {
     }
 }
 
-inline void swap(VAR ***a, VAR ***b) {
+static inline void swap_pointers(VAR ***a, VAR ***b) {
     VAR **temp = *a;
     *a = *b;
     *b = temp;
@@ -132,6 +159,18 @@ int main(int argc, char *argv[]) {
         if (my_rank == 0) printf("Usage: %s <sizeOfBoard> <total_generations> <outputFile>\n", argv[0]);
         MPI_Finalize();
         return 0;
+    }
+
+    //Assign the exchange ghost function
+    void (*exchange_ghost_ptr)(VAR**, int, int, int, int);
+    if (comm_sz == 1) { //If there is only one process
+        exchange_ghost_ptr = exchange_ghost;
+    } else if (my_rank == 0) { //If processes > 1 and my_rank == 0
+        exchange_ghost_ptr = exchange_ghost_top;
+    } else if (my_rank == comm_sz - 1) { //If processes > 1 and my_rank == last process
+        exchange_ghost_ptr = exchange_ghost_bottom;
+    } else { //If processes > 1 and my_rank != (0 or last process)
+        exchange_ghost_ptr = exchange_ghost_inner;
     }
 
     //Initialize the board and its size
@@ -176,30 +215,37 @@ int main(int argc, char *argv[]) {
 
     int curr_generation;
     int total_generations = atoi(argv[2]);
-    int local_changed = 0;
-    int global_changed = 1;
+    VAR local_changed = 0;
+    VAR global_changed = 1;
     start_time = MPI_Wtime();
     for (curr_generation = 0; global_changed && (curr_generation < total_generations); ++curr_generation) {
 
         //Exchange neighbors
-        exchange_ghost(local_board, out_my_core_rows, cols, my_rank, comm_sz);
+        exchange_ghost_ptr(local_board, out_my_core_rows, cols, my_rank, comm_sz);
 
         //All processes are performing this work on their piece of the board
         //locally
         local_changed = 0;
-        for (int i = 1; i <= out_my_core_rows; ++i) { 
+        for (int i = 1; i <= out_my_core_rows; ++i) {
+            VAR* local_board_above_row = local_board[i-1];
+            VAR* local_board_current_row = local_board[i];
+            VAR* local_board_below_row = local_board[i+1];
             for (int j = 1; j < cols-1; ++j) {
-                VAR score = local_board[i-1][j-1] + local_board[i-1][j] + local_board[i-1][j+1] +
-                    local_board[i][j-1] + local_board[i][j+1] +
-                    local_board[i+1][j-1] + local_board[i+1][j] + local_board[i+1][j+1];
-                VAR next_value = (score == 3) | (local_board[i][j] & (score == 2));
+
+                VAR score = local_board_above_row[j-1] + local_board_above_row[j] + local_board_above_row[j+1] +
+                    local_board_current_row[j-1] + local_board_current_row[j+1] +
+                    local_board_below_row[j-1] + local_board_below_row[j] + local_board_below_row[j+1];
+
+                VAR next_value = (score == 3) | (local_board_current_row[j] & (score == 2));
+
                 local_next_board[i][j] = next_value;
-                local_changed |= (next_value ^ local_board[i][j]);
+
+                local_changed |= (next_value ^ local_board_current_row[j]);
             }
         }
 
-        swap(&local_next_board, &local_board);
-        MPI_Allreduce(&local_changed, &global_changed, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
+        swap_pointers(&local_next_board, &local_board);
+        MPI_Allreduce(&local_changed, &global_changed, 1, MPI_VAR, MPI_MAX, MPI_COMM_WORLD);
     }
     // Finally, gather all the boards pieces back into process zero
     MPI_Gatherv(local_board[1], out_my_core_rows * cols, MPI_VAR, (my_rank == 0) ? board[0] : NULL, 
