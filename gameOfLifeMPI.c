@@ -1,22 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <mpi.h>
-#include <sys/time.h>
-#define VAR int
-#define MPI_VAR MPI_INT
+#define VAR char
+#define MPI_VAR MPI_CHAR
 //Compile: mpicc -g -Wall -o mpi_gameOfLife.out gameOfLifeMPI.c
 //Run: mpiexec -n 4 ./mpi_gameOfLife.out
 
-/* chrono function to get wall clock time as double */
-double gettime(void) {
-  struct timeval tval;
-
-  gettimeofday(&tval, NULL);
-
-  return( (double)tval.tv_sec + (double)tval.tv_usec/1000000.0 );
-}
-
-void printArray(int rows, int cols, VAR **array) {
+void print_array(VAR **array, int rows, int cols) {
     for (int j = 0; j < cols; ++j) printf("0 ");
     printf("\n");
     for (int i = 0; i < rows; ++i) {
@@ -29,7 +19,7 @@ void printArray(int rows, int cols, VAR **array) {
     printf("\n");
 }
 
-VAR** allocarray(int rows, int cols) {
+VAR** alloc_array(int rows, int cols) {
     VAR *p = (VAR *)malloc(rows * cols * sizeof(VAR));
     VAR **a = (VAR **)malloc(rows * sizeof(VAR*));
     for (int i = 0; i < rows; i++)
@@ -37,7 +27,7 @@ VAR** allocarray(int rows, int cols) {
     return a;
 }
 
-void InitArray(int rows, int cols, VAR **array) {
+void init_array(VAR **array, int rows, int cols) {
     for (int i = 0; i < rows; ++i) {
         for (int j = 0; j < cols; ++j) {
             array[i][j] = 0;
@@ -46,72 +36,60 @@ void InitArray(int rows, int cols, VAR **array) {
 }
 
 //Sets a board to the given test case in homework 0
-void setBoardTestCase(VAR **a, int mrows, int ncols) {
-    int xMiddle = mrows/2;
-    int yMiddle = ncols/2;
-    a[xMiddle-1][yMiddle-1] = 1;
-    a[xMiddle][yMiddle-1] = 1;
-    a[xMiddle+1][yMiddle-1] = 1;
-    a[xMiddle-1][yMiddle] = 1;
-    a[xMiddle][yMiddle] = 1;
-    a[xMiddle+1][yMiddle] = 1;
-    a[xMiddle-1][yMiddle+1] = 1;
-    a[xMiddle][yMiddle+1] = 1;
+void set_board_test_case(VAR **a, int mrows, int ncols) {
+    int x_middle = mrows/2;
+    int y_middle = ncols/2;
+    a[x_middle-1][y_middle-1] = 1;
+    a[x_middle][y_middle-1] = 1;
+    a[x_middle+1][y_middle-1] = 1;
+    a[x_middle-1][y_middle] = 1;
+    a[x_middle][y_middle] = 1;
+    a[x_middle+1][y_middle] = 1;
+    a[x_middle-1][y_middle+1] = 1;
+    a[x_middle][y_middle+1] = 1;
 
 }
 
 //Sets the board to an infinite pattern
-void setBoardInfinite(VAR **a, int mrows, int ncols) {
-    int xMiddle = mrows/2;
-    int yMiddle = ncols/2;
+void set_board_infinite_case(VAR **a, int mrows, int ncols) {
+    int x_middle = mrows/2;
+    int y_middle = ncols/2;
 
-    a[xMiddle][yMiddle] = 1;
-    a[xMiddle-1][yMiddle] = 1;
-    a[xMiddle+1][yMiddle] = 1;
-    a[xMiddle][yMiddle-1] = 1;
+    a[x_middle][y_middle] = 1;
+    a[x_middle-1][y_middle] = 1;
+    a[x_middle+1][y_middle] = 1;
+    a[x_middle][y_middle-1] = 1;
 
 }
 
-void freearray(VAR **a) {
+void free_array(VAR **a) {
     free(a[0]);
     free(a);
 }
 
-void GetSendCounts(int rows, int cols, int processAmt, int *sendcounts, int *displs) {
+void get_send_counts(int rows, int cols, int processAmt, int *send_counts, int *displs) {
     int rem = rows % processAmt;
     int sum = 0;
     for (int i = 0; i < processAmt; i++) {
         int rows_for_this_proc = (rows / processAmt) + (i < rem ? 1 : 0);
-        sendcounts[i] = rows_for_this_proc * cols; 
+        send_counts[i] = rows_for_this_proc * cols; 
         displs[i] = sum;
-        sum += sendcounts[i];
+        sum += send_counts[i];
     }
 }
 
-void ExchangeGhosts(VAR **local_board, int my_rows, int cols, int my_rank, int comm_sz) {
+void exchange_ghost(VAR **local_board, int my_rows, int cols, int my_rank, int comm_sz) {
     int top_neighbor = my_rank - 1;
     int bottom_neighbor = my_rank + 1;
-
-    // Send bottom core row (index my_rows) to neighbor below, receive into top ghost (index 0)
-    MPI_Sendrecv(local_board[my_rows], cols, MPI_VAR, (bottom_neighbor < comm_sz) ? bottom_neighbor : MPI_PROC_NULL, 0,
-                 local_board[0],       cols, MPI_VAR, (top_neighbor >= 0) ? top_neighbor : MPI_PROC_NULL, 0,
-                 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-    // Send top core row (index 1) to neighbor above, receive into bottom ghost (index my_rows + 1)
-    MPI_Sendrecv(local_board[1],           cols, MPI_VAR, (top_neighbor >= 0) ? top_neighbor : MPI_PROC_NULL, 1,
-                 local_board[my_rows + 1], cols, MPI_VAR, (bottom_neighbor < comm_sz) ? bottom_neighbor : MPI_PROC_NULL, 1,
-                 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    MPI_Request requests[4];
+    MPI_Isend(local_board[my_rows], cols, MPI_VAR, (bottom_neighbor < comm_sz) ? bottom_neighbor : MPI_PROC_NULL, 0, MPI_COMM_WORLD, &requests[0]);
+    MPI_Irecv(local_board[0], cols, MPI_VAR, (top_neighbor >= 0) ? top_neighbor : MPI_PROC_NULL, 0, MPI_COMM_WORLD, &requests[1]);
+    MPI_Isend(local_board[1], cols, MPI_VAR, (top_neighbor >= 0) ? top_neighbor : MPI_PROC_NULL, 1, MPI_COMM_WORLD, &requests[2]);
+    MPI_Irecv(local_board[my_rows + 1], cols, MPI_VAR, (bottom_neighbor < comm_sz) ? bottom_neighbor : MPI_PROC_NULL, 1, MPI_COMM_WORLD, &requests[3]);
+    MPI_Waitall(4, requests, MPI_STATUSES_IGNORE);
 }
 
-void ScatterBoard(int cols, VAR **matrix, int processAmt, int my_rank, int out_my_core_rows,
-                    int *sendCounts, int *displs, int my_core_element_count, int **local_board) {
-    
-    MPI_Scatterv(my_rank == 0 ? matrix[0] : NULL, sendCounts, displs, MPI_VAR, 
-                 local_board[1], my_core_element_count, MPI_VAR, 
-                 0, MPI_COMM_WORLD);
-}
-
-void CopyArray(int rows, int cols, VAR **array1, VAR **array2) {
+void copy_array(int rows, int cols, VAR **array1, VAR **array2) {
     for (int i = 0; i < rows; ++i) {
         for (int j = 0; j < cols; ++j) {
             array2[i][j] = array1[i][j];
@@ -119,73 +97,92 @@ void CopyArray(int rows, int cols, VAR **array1, VAR **array2) {
     }
 }
 
-void GatherIntoBoard(int cols, VAR **local_board, VAR **board, int my_core_rows, int my_rank, int *recvCounts, int *displs) {
-    // board[0] is the start of the contiguous block on Rank 0
-    MPI_Gatherv(local_board[1], my_core_rows * cols, MPI_VAR, 
-                (my_rank == 0) ? board[0] : NULL, 
-                recvCounts, displs, MPI_VAR, 
-                0, MPI_COMM_WORLD);
-}
-
-void swap(VAR ***a, VAR ***b) {
+inline void swap(VAR ***a, VAR ***b) {
     VAR **temp = *a;
     *a = *b;
     *b = temp;
 }
 
-int main() {
+//Writes the board to a file
+void write_board(const char *file_name, VAR **board, int rows, int cols) {
+    FILE *file;
+    file = fopen(file_name, "w");
+    if (file == NULL) {
+        printf("Error writing board to %s!", file_name);
+        return;
+    }
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 1; j < cols - 1; ++j) {
+            fprintf(file, "%d ", board[i][j]);
+        }
+        fprintf(file, "\n");
+    }
+    fclose(file);
+}
+
+int main(int argc, char *argv[]) {
 
     //Initialize MPI
     int comm_sz, my_rank;
-    MPI_Init(NULL, NULL);
+    MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &comm_sz);
     MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
+
+    if (argc != 4) {
+        if (my_rank == 0) printf("Usage: %s <sizeOfBoard> <total_generations> <outputFile>\n", argv[0]);
+        MPI_Finalize();
+        return 0;
+    }
 
     //Initialize the board and its size
     //All processes will have the board pointer
     //but to save memory only process zero will
     //own the whole board.
     VAR **board = NULL;
-    int size = 1000;
+    int size = atoi(argv[1]);
     int cols = size + 2;
+    double start_time, end_time, local_elapsed_time, global_elapsed_time;
     if (my_rank == 0) {
-        board = allocarray(size, cols);
-        InitArray(size, cols, board);
-        setBoardInfinite(board, size, cols);
-        //printf("Original Board on Rank 0:\n");
-        //printArray(size, cols, board);
-        //printf("\n");
+        board = alloc_array(size, cols);
+        init_array(board, size, cols);
+        set_board_infinite_case(board, size, cols);
+        if (size <= 10) {
+            printf("Original Board on Rank 0:\n");
+            print_array(board, size, cols);
+            printf("\n");
+        }
     }
 
     //Calculate how many rows each process will be getting
-    int *sendCounts = malloc(comm_sz * sizeof(int));
+    int *send_counts = malloc(comm_sz * sizeof(int));
     int *displs = malloc(comm_sz * sizeof(int));
-    GetSendCounts(size, cols, comm_sz, sendCounts, displs);
+    get_send_counts(size, cols, comm_sz, send_counts, displs);
 
     //Get the amount of elements each process will handle
-    int my_core_element_count = sendCounts[my_rank];
+    int my_core_element_count = send_counts[my_rank];
     int out_my_core_rows = my_core_element_count / cols;
 
     int total_local_rows = (out_my_core_rows) + 2;
-    VAR **local_board = allocarray(total_local_rows, cols);
-    VAR **local_next_board = allocarray(total_local_rows, cols);
+    VAR **local_board = alloc_array(total_local_rows, cols);
+    VAR **local_next_board = alloc_array(total_local_rows, cols);
 
     // Initialize
-    InitArray(total_local_rows, cols, local_board);
-    InitArray(total_local_rows, cols, local_next_board);
+    init_array(local_board, total_local_rows, cols);
+    init_array(local_next_board, total_local_rows, cols);
 
     //We scatter the board among the processes
-    ScatterBoard(cols, board, comm_sz, my_rank, out_my_core_rows,
-                    sendCounts, displs, my_core_element_count, local_board);
+    MPI_Scatterv(my_rank == 0 ? board[0] : NULL, send_counts, displs, MPI_VAR, 
+        local_board[1], my_core_element_count, MPI_VAR, 0, MPI_COMM_WORLD);
 
-    int gen;
+    int curr_generation;
+    int total_generations = atoi(argv[2]);
     int local_changed = 0;
-    double startTime = 0;
-    if (my_rank == 0) startTime = gettime();
-    for (gen = 0; gen < 1000; ++gen) {
+    int global_changed = 1;
+    start_time = MPI_Wtime();
+    for (curr_generation = 0; global_changed && (curr_generation < total_generations); ++curr_generation) {
 
         //Exchange neighbors
-        ExchangeGhosts(local_board, out_my_core_rows, cols, my_rank, comm_sz);
+        exchange_ghost(local_board, out_my_core_rows, cols, my_rank, comm_sz);
 
         //All processes are performing this work on their piece of the board
         //locally
@@ -195,32 +192,34 @@ int main() {
                 VAR score = local_board[i-1][j-1] + local_board[i-1][j] + local_board[i-1][j+1] +
                     local_board[i][j-1] + local_board[i][j+1] +
                     local_board[i+1][j-1] + local_board[i+1][j] + local_board[i+1][j+1];
-                VAR nextValue = (score == 3) | (local_board[i][j] & (score == 2));
-                local_next_board[i][j] = nextValue;
-                local_changed |= (nextValue ^ local_board[i][j]);
+                VAR next_value = (score == 3) | (local_board[i][j] & (score == 2));
+                local_next_board[i][j] = next_value;
+                local_changed |= (next_value ^ local_board[i][j]);
             }
         }
 
         swap(&local_next_board, &local_board);
-        // Optional: Check if any process changed
-        int global_changed;
         MPI_Allreduce(&local_changed, &global_changed, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
-        if (!global_changed) break;
     }
     // Finally, gather all the boards pieces back into process zero
-    GatherIntoBoard(cols, local_board, board, out_my_core_rows, my_rank, sendCounts, displs);
+    MPI_Gatherv(local_board[1], out_my_core_rows * cols, MPI_VAR, (my_rank == 0) ? board[0] : NULL, 
+                send_counts, displs, MPI_VAR, 0, MPI_COMM_WORLD);
+
+    end_time = MPI_Wtime();
+    local_elapsed_time = end_time - start_time;
+    MPI_Reduce(&local_elapsed_time, &global_elapsed_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
 
     if (my_rank == 0) {
-        double endTime = gettime();
-        printf("Game stopped at %d generations:\n", gen);
-        printf("Time taken: %f\n", endTime - startTime);
-        //printArray(size, cols, board);
-        freearray(board);
+        write_board(argv[3], board, size, cols);
+        printf("Game stopped at %d total_generations:\n", curr_generation);
+        printf("Time taken: %f\n", global_elapsed_time);
+        if (size <= 10) print_array(board, size, cols);
+        free_array(board);
     }
 
-    freearray(local_board);
-    freearray(local_next_board);
-    free(sendCounts);
+    free_array(local_board);
+    free_array(local_next_board);
+    free(send_counts);
     free(displs);
 
     MPI_Finalize();
