@@ -1,54 +1,43 @@
+/* Fastest version so far */
 #include <stdio.h>
+#include <stdlib.h>
 #include <cuda.h>
+#include <sys/time.h>
 
-//Board needs to have ghost cells
-//This function expects the size to be the original size and not the size + 2.
-//In this version there is only going to be one block with 1024 threads so the logic is easier
-__global__ void game_of_life(char* board, char* next_board, int* element_counts, int size) {
+__global__ void game_of_life(unsigned char* board, unsigned char* next_board, int size) {
+    int inner_size = size - 2;
 
-    int my_id = threadIdx.x;
-    int element_count = element_counts[my_id];
+    int col = blockIdx.x * blockDim.x + threadIdx.x + 1;
+    int row = blockIdx.y * blockDim.y + threadIdx.y + 1;
 
-    // Compute prefix sum (offset)
-    int offset = my_id * element_count;
+    if (row > inner_size || col > inner_size) return;
 
-    // Loop over elements assigned to this thread
-    for (int i = 0; i < element_count; ++i) {
+    int pos = row * size + col;
 
-        int global_index = offset + i;
+    int score =
+        board[pos - size - 1] + board[pos - size] + board[pos - size + 1] +
+        board[pos - 1] + board[pos + 1] +
+        board[pos + size - 1] + board[pos + size] + board[pos + size + 1];
 
-        // Convert to 2D (non-ghost coordinates)
-        int row = global_index / size;
-        int col = global_index % size;
-
-        // Shift for ghost cells
-        int ghost_row = row + 1;
-        int ghost_col = col + 1;
-
-        int idx = ghost_row * (size + 2) + ghost_col;
-
-        int row_above = idx - (size + 2);
-        int row_below = idx + (size + 2);
-        char score = 
-            board[row_above-1] + board[row_above] + board[row_above+1] +
-            board[idx-1] + board[idx+1] +
-            board[row_below-1] + board[row_below] + board[row_below+1];
-
-        char nextValue = (score == 3) || (board[idx] && score == 2);
-
-        // Example update (replace with real Game of Life logic later)
-        next_board[idx] = nextValue;
-    }
+    next_board[pos] = (score == 3) || (board[pos] && score == 2);
 }
 
-void init_board(char* board, int size) {
+double get_time() {
+  struct timeval tval;
+
+  gettimeofday(&tval, NULL);
+
+  return( (double)tval.tv_sec + (double)tval.tv_usec/1000000.0 );
+}
+
+void init_board(unsigned char* board, int size) {
     int total_size_with_ghost = size * size;
     for (int i = 0; i < total_size_with_ghost; ++i) {
         board[i] = 0;
     }
 }
 
-void print_board(char* board, int size) {
+void print_board(unsigned char* board, int size) {
     int row;
     for (int i = 0; i < size; ++i) {
         row = i * size;
@@ -60,7 +49,7 @@ void print_board(char* board, int size) {
 }
 
 //Sets a board to the given test case in homework 0
-void set_board_test_case(char *board, int size) {
+void set_board_test_case(unsigned char *board, int size) {
     int center = (size / 2) * size + (size / 2);
 
     board[center - 1 - size] = 1;
@@ -76,6 +65,30 @@ void set_board_test_case(char *board, int size) {
 
 }
 
+void set_board_random(unsigned char* board, int size) {
+    srand(1);  // seed once per program run
+
+    for (int i = 1; i < size - 1; ++i) {
+        for (int j = 1; j < size - 1; ++j) {
+            int index = i * size + j;
+            board[index] = rand() % 2;  // 0 or 1
+        }
+    }
+}
+
+void write_board_to_file(char* file_name, unsigned char* board, int size) {
+    FILE* fptr = fopen(file_name, "w");
+    if (fptr == NULL) return;
+    for (int i = 1; i < size - 1; ++i) {
+        for (int j = 1; j < size - 1; ++j) {
+            int index = i * size + j;
+            fprintf(fptr, "%d ", board[index]);
+        }
+        fprintf(fptr, "\n");
+    }
+    fclose(fptr);
+}
+
 int main(int argc, char* argv[]) {
 
     //Check inputs
@@ -85,70 +98,63 @@ int main(int argc, char* argv[]) {
     }
 
     //Define variables
-    int size = atoi(argv[1]);
-    int total_size = size * size;
-    int total_size_with_ghost = (size + 2) * (size + 2);
+    int inner_size = atoi(argv[1]);
+    int total_inner_size = inner_size * inner_size;
+    int size = inner_size + 2;
     int generations = atoi(argv[2]);
     char* file_name = argv[3];
 
     //Create the boards
-    char* board;
-    char* board_gpu;
-    char* next_board_gpu;
-    board = (char *)malloc(total_size_with_ghost * sizeof(char));
-    cudaMalloc(&board_gpu, total_size_with_ghost * sizeof(char));
-    cudaMalloc(&next_board_gpu, total_size_with_ghost * sizeof(char));
+    unsigned char* board;
+    unsigned char* board_gpu;
+    unsigned char* next_board_gpu;
+    board = (unsigned char *)malloc(size * size * sizeof(unsigned char));
+    cudaMalloc(&board_gpu, size * size * sizeof(unsigned char));
+    cudaMalloc(&next_board_gpu, size * size * sizeof(unsigned char));
 
     //Initalize the boards
-    init_board(board, size + 2);
-    set_board_test_case(board, size + 2);
-    cudaMemcpy(board_gpu, board, total_size_with_ghost * sizeof(char), cudaMemcpyHostToDevice);
-    cudaMemcpy(next_board_gpu, board, total_size_with_ghost * sizeof(char), cudaMemcpyHostToDevice);
+    init_board(board, size);
+    set_board_random(board, size);
+    cudaMemcpy(board_gpu, board, size * size * sizeof(unsigned char), cudaMemcpyHostToDevice);
+    cudaMemcpy(next_board_gpu, board, size * size * sizeof(unsigned char), cudaMemcpyHostToDevice);
 
-    //Define the amount of threads and the thread counts array
-    int threads = 1024;
-    int* thread_counts = (int *)malloc(threads * sizeof(int));
-    int* thread_counts_gpu;
-    cudaMalloc(&thread_counts_gpu, threads * sizeof(int));
+    dim3 blockDim(16, 16);  // 256 threads per block (good default)
 
-    //Initalize thread_counts
-    for (int i = 0; i < threads; ++i) {
-        thread_counts[i] = 0;
-    }
+    dim3 gridDim(
+        (inner_size + blockDim.x - 1) / blockDim.x,
+        (inner_size + blockDim.y - 1) / blockDim.y
+    );
 
-    //Compute the amount of elements a single thread will work on
-    int index;
-    for (int i = 0; i < total_size; ++i) {
-        index = i % threads;
-        thread_counts[index] += 1;
-    }
-
-    //Move the thread_counts to the GPU
-    cudaMemcpy(thread_counts_gpu, thread_counts, threads * sizeof(int), cudaMemcpyHostToDevice);
+    //Get current time
+    double start_time = get_time();
 
     //Game of life function
     for (int i = 0; i < generations; ++i) {
         
         //One generation of the game
-        game_of_life<<<1, threads>>>(board_gpu, next_board_gpu, thread_counts_gpu, size);
+        game_of_life<<<gridDim, blockDim>>>(board_gpu, next_board_gpu, size);
         cudaDeviceSynchronize();
         
         // swap
-        char* temp = board_gpu;
+        unsigned char* temp = board_gpu;
         board_gpu = next_board_gpu;
         next_board_gpu = temp;
 
     }
 
     //Move the final board back to the host/CPU
-    cudaMemcpy(board, next_board_gpu, total_size_with_ghost * sizeof(char), cudaMemcpyDeviceToHost);
+    cudaMemcpy(board, board_gpu, size * size * sizeof(unsigned char), cudaMemcpyDeviceToHost);
 
-    //Print out the board
-    print_board(board, size + 2);
+    //Get the ending time and print out the total time taken
+    double end_time = get_time();
+    printf("Time taken: %f\n", (end_time - start_time));
+
+    write_board_to_file(file_name, board, size);
 
     //Free memory
     free(board);
     cudaFree(board_gpu);
+    cudaFree(next_board_gpu);
 
     //End program
     return 0;
