@@ -19,7 +19,7 @@ __global__ void game_of_life(unsigned char* board, unsigned char* next_board, in
         board[pos - 1] + board[pos + 1] +
         board[pos + size - 1] + board[pos + size] + board[pos + size + 1];
 
-    next_board[pos] = (score == 3) || (board[pos] && score == 2);
+    next_board[pos] = ((score == 3) || (board[pos] && score == 2));
 }
 
 double get_time() {
@@ -70,7 +70,7 @@ void set_board_random(unsigned char* board, int size) {
 
     for (int i = 1; i < size - 1; ++i) {
         for (int j = 1; j < size - 1; ++j) {
-            int index = i * size + j;
+            int index = (i * size) + j;
             board[index] = rand() % 2;  // 0 or 1
         }
     }
@@ -79,8 +79,8 @@ void set_board_random(unsigned char* board, int size) {
 void write_board_to_file(char* file_name, unsigned char* board, int size) {
     FILE* fptr = fopen(file_name, "w");
     if (fptr == NULL) return;
-    for (int i = 1; i < size - 1; ++i) {
-        for (int j = 1; j < size - 1; ++j) {
+    for (int i = 0; i < size; ++i) {
+        for (int j = 0; j < size; ++j) {
             int index = i * size + j;
             fprintf(fptr, "%d ", board[index]);
         }
@@ -114,7 +114,9 @@ int main(int argc, char* argv[]) {
 
     //Initalize the boards
     init_board(board, size);
+    write_board_to_file("starting_board_zeros.txt", board, size);
     set_board_random(board, size);
+    write_board_to_file("starting_board.txt", board, size);
     cudaMemcpy(board_gpu, board, size * size * sizeof(unsigned char), cudaMemcpyHostToDevice);
     cudaMemcpy(next_board_gpu, board, size * size * sizeof(unsigned char), cudaMemcpyHostToDevice);
 
